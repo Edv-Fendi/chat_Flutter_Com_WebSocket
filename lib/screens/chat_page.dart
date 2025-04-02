@@ -21,7 +21,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  final socket = WebSocket(Uri.parse('ws://10.200.74.225:8765'));
+  final socket = WebSocket(Uri.parse('ws://127.0.0.1:8765'));
   final List<types.Message> _messages = [];
   final TextEditingController _messageController = TextEditingController();
   late types.User otherUser;
@@ -35,7 +35,7 @@ class _ChatPageState extends State<ChatPage> {
       id: widget.id,
       firstName: widget.name,
     );
-    
+
     // Initialize otherUser with default values to avoid late initialization error
     otherUser = types.User(
       id: 'default',
@@ -43,7 +43,8 @@ class _ChatPageState extends State<ChatPage> {
     );
 
     socket.messages.listen((incomingMessage) {
-      if (incomingMessage is String) {  // Ensure the message is a String
+      if (incomingMessage is String) {
+        // Ensure the message is a String
         try {
           List<String> parts = incomingMessage.split(' from ');
           String jsonString = parts[0];
@@ -52,7 +53,8 @@ class _ChatPageState extends State<ChatPage> {
           String id = data['id'];
           String msg = data['msg'];
           String nick = data['nick'] ?? id;
-          String type = data['type'] ?? 'text'; // Default to text if not specified
+          String type =
+              data['type'] ?? 'text'; // Default to text if not specified
 
           if (id != me.id) {
             setState(() {
@@ -82,16 +84,21 @@ class _ChatPageState extends State<ChatPage> {
     types.Message newMessage;
 
     if (type == 'image') {
-      newMessage = types.ImageMessage(
+      final imageMessage = types.ImageMessage(
         author: otherUser,
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        uri: message,
+        uri: '', // continua vazio
         createdAt: DateTime.now().millisecondsSinceEpoch,
         name: 'Image',
         size: 0,
         width: 0,
         height: 0,
+        metadata: {
+          'base64': message, // aqui vem do campo 'msg'
+          'mimeType': 'image/jpeg',
+        },
       );
+      newMessage = imageMessage;
     } else {
       newMessage = types.TextMessage(
         author: otherUser,
@@ -113,12 +120,12 @@ class _ChatPageState extends State<ChatPage> {
   void _sendMessageCommon(types.Message message) {
     String msgContent;
     String type;
-    
+
     if (message is types.TextMessage) {
       msgContent = message.text;
       type = 'text';
     } else if (message is types.ImageMessage) {
-      msgContent = message.uri;
+      msgContent = message.metadata?['base64'] ?? '';
       type = 'image';
     } else if (message is types.FileMessage) {
       msgContent = message.uri;
@@ -206,7 +213,8 @@ class _ChatPageState extends State<ChatPage> {
         author: me,
         createdAt: DateTime.now().millisecondsSinceEpoch,
         id: randomString(),
-        mimeType: lookupMimeType(result.files.single.path!) ?? 'application/octet-stream',
+        mimeType: lookupMimeType(result.files.single.path!) ??
+            'application/octet-stream',
         name: result.files.single.name,
         size: result.files.single.size,
         uri: result.files.single.path!,
@@ -226,6 +234,9 @@ class _ChatPageState extends State<ChatPage> {
     if (result != null) {
       final bytes = await result.readAsBytes();
       final image = await decodeImageFromList(bytes);
+      final base64String = base64Encode(bytes); // Codifica em base64
+      final mimeType =
+          lookupMimeType(result.path!) ?? 'image/jpeg'; // Detecta o tipo
 
       final message = types.ImageMessage(
         author: me,
@@ -234,10 +245,14 @@ class _ChatPageState extends State<ChatPage> {
         id: randomString(),
         name: result.name,
         size: bytes.length,
-        uri: result.path,
+        uri: '', // URI vazio
         width: image.width.toDouble(),
+        metadata: {
+          'base64': base64Encode(bytes),
+          'mimeType': mimeType,
+        },
       );
-      
+
       _sendMessageCommon(message);
     }
   }
@@ -253,13 +268,31 @@ class _ChatPageState extends State<ChatPage> {
         backgroundColor: Colors.deepPurple,
       ),
       body: Chat(
-        onAttachmentPressed: _handleAttachmentPressed,
-        messages: _messages,
-        user: me,
-        showUserAvatars: true,
-        showUserNames: true,
-        onSendPressed: _handleSendPressed,
-      ),
+          onAttachmentPressed: _handleAttachmentPressed,
+          messages: _messages,
+          user: me,
+          showUserAvatars: true,
+          showUserNames: true,
+          onSendPressed: _handleSendPressed,
+          imageMessageBuilder: (types.ImageMessage message,
+              {required int messageWidth}) {
+            final base64String = message.metadata?['base64'];
+            if (base64String != null) {
+              try {
+                final bytes = base64Decode(base64String);
+                return Image.memory(
+                  bytes,
+                  width: messageWidth.toDouble(),
+                  fit: BoxFit.cover,
+                );
+              } catch (e) {
+                return const Text('Erro ao decodificar imagem');
+              }
+            } else {
+              // Caso não haja base64, exibe uma imagem padrão ou um placeholder
+              return const Text('Imagem não disponível');
+            }
+          }),
     );
   }
 
